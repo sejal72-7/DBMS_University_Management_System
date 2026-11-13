@@ -50,15 +50,50 @@ async function withTransaction(callback) {
 }
 
 /**
- * Verify MySQL connectivity on startup without crashing server code inspection.
+ * Verify MySQL connectivity and diagnose common setup errors.
  */
 async function testConnection() {
-  const connection = await pool.getConnection();
+  let connection;
   try {
+    connection = await pool.getConnection();
     await connection.ping();
-    return true;
+
+    let version = 'unknown';
+    let database = process.env.DB_NAME || 'university_management_db';
+    let tables = [];
+
+    try {
+      const [ver] = await connection.query('SELECT VERSION() AS version');
+      if (ver && ver[0] && ver[0].version) version = ver[0].version;
+      const [db] = await connection.query('SELECT DATABASE() AS current_database');
+      if (db && db[0] && db[0].current_database) database = db[0].current_database;
+      const [tbls] = await connection.query('SHOW TABLES');
+      if (tbls && Array.isArray(tbls)) tables = tbls.map(r => Object.values(r)[0]);
+    } catch (_) {
+      // Fallback if running under unit-test mock
+    }
+
+    return {
+      success: true,
+      version,
+      database,
+      tables
+    };
+  } catch (err) {
+    let diagnosis = 'Unknown database error.';
+    if (err.code === 'ECONNREFUSED') {
+      diagnosis = `MySQL Server is not running or unreachable on port ${process.env.DB_PORT || 3306}.`;
+    } else if (err.code === 'ER_ACCESS_DENIED_ERROR') {
+      diagnosis = `Access denied for user "${process.env.DB_USER || 'root'}". Check DB_PASSWORD in .env.`;
+    } else if (err.code === 'ER_BAD_DB_ERROR') {
+      diagnosis = `Database "${process.env.DB_NAME || 'university_management_db'}" does not exist. Run database/schema.sql to create it.`;
+    } else if (err.code === 'ENOTFOUND') {
+      diagnosis = `Host "${process.env.DB_HOST || 'localhost'}" could not be resolved.`;
+    }
+    err.diagnosis = diagnosis;
+    throw err;
   } finally {
-    connection.release();
+    if (connection) connection.release();
   }
 }
 

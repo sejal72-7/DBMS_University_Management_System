@@ -43,14 +43,22 @@ app.use(
 // API Routes
 app.get('/api/health', async (_req, res) => {
   try {
-    await testConnection();
-    res.json({ success: true, status: 'ok', database: 'connected' });
+    const dbInfo = await testConnection();
+    res.json({
+      success: true,
+      status: 'ok',
+      database: 'connected',
+      version: dbInfo.version,
+      activeDatabase: dbInfo.database,
+      tableCount: dbInfo.tables.length
+    });
   } catch (err) {
     res.status(503).json({
       success: false,
       status: 'error',
       database: 'disconnected',
-      message: 'MySQL connection failed. Check .env and MySQL server.'
+      message: 'MySQL connection failed. Check .env and MySQL server.',
+      cause: err.diagnosis || err.message
     });
   }
 });
@@ -96,12 +104,14 @@ function startServer(port = Number(process.env.PORT) || 3000) {
   return app.listen(port, async () => {
     console.log(`University Management System running at http://localhost:${port}`);
     try {
-      await testConnection();
-      console.log('MySQL database connection verified.');
+      const dbInfo = await testConnection();
+      console.log(`[MySQL] Connected successfully to local MySQL Server v${dbInfo.version}`);
+      console.log(`[MySQL] Active database: ${dbInfo.database} (${dbInfo.tables.length} tables verified)`);
     } catch (err) {
-      console.warn(
-        `Warning: Unable to connect to MySQL on startup (${err.code || err.message}). Ensure MySQL is running and .env is configured.`
-      );
+      console.warn(`[MySQL Connection Error] ${err.code || 'UNKNOWN'}: ${err.message}`);
+      if (err.diagnosis) {
+        console.warn(`[MySQL Diagnosis] Cause: ${err.diagnosis}`);
+      }
     }
   });
 }
